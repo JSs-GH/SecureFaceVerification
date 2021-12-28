@@ -1,0 +1,2 @@
+# SecureFaceVerification
+A secure Face Verification tool using TFHE with API HNP. The implementation starts given face embedding vectors (from Facenet) in enrollment and athentication step. The aim is to combine this implementation focusing on secure server side with the one from liziyu0104 focusing on the client side experience to build a secure common tool for our common Lab "Learning on encrypted data" in the respective repository..
