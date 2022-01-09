@@ -8,8 +8,9 @@ import authclient
 #Initialisation
 reencryption_server = Reenserver()
 reencryption_server.generate_server_keys()
+public_server_keys = reencryption_server.send_public_server_key() #This action may be asked by the part of the Face Feature Server before the cryptography part face_feature_server here is started
 
-face_feature_server = Ffserver()
+face_feature_server = Ffserver(public_server_keys)
 client = Client()
 
 reencryption_server.generate_and_distribute_local_keys()
