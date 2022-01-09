@@ -31,7 +31,7 @@ class Reenserver:
 		RSA_tool.store_public_private(new_c_rsa_path, rsa_private_key)
 		rsa_public_key = RSA_tool.public_key
 		N, e = rsa_public_key
-		triple = (rsa_public_key, self.secret_server_key.encrypt(rsa_private_key), self.secret_server_key.encrypt(N))
+		triple = (rsa_public_key, self.secret_server_key.encrypt(RSA_tool.big_int_to_narray(rsa_private_key)), self.secret_server_key.encrypt(RSA_tool.big_int_to_narray(N)))
 		pickle.dump(triple, open(encr_loc_privkey_path, "wb"))
 		time.sleep(deletion_time)
 		os.remove(encr_loc_privkey_path)
