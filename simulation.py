@@ -1,60 +1,118 @@
-# HNP does not allow to serialize keys yet. Therefore, one is simulating here, every time parties switch, there is a communication between these parties exchanging parameters
-import reenserver
-import ffserver
-import client
-import authclient
+# HNP does not allow to serialize keys yet. Therefore, one is simulating here, every time parties switch, there is a communication between these parties exchanging parameters, this communication is expected to be authenticated and encrypted.
+import hnumpy as hnp
+import numpy as np
+import functions
+import main_key_server
+import sub_key_server
+import face_feature_server
+import enrollment_client
+import authentication_client
+import logging
+from loguru import logger
 
+# Initialisation
+logger.info('Simulation: key generation - started')
+context = functions.hom_decision.create_context()
+keys = context.keygen()
+logger.info('Simulation: key generation - done')
 
-#Initialisation
-reencryption_server = Reenserver()
-reencryption_server.generate_server_keys()
-public_server_keys = reencryption_server.send_public_server_key() #This action may be asked by the part of the Face Feature Server before the cryptography part face_feature_server here is started
+# Key distribution
+# Right now, the main key server receives the whole secret server key and the sub key server None as HNP does not allow altering private keys.
+main_partial_keys = keys
+sub_partial_keys = None
+logger.info('Simulation: partial key distribution to key servers - started')
+main_key_server = main_key_server.Main_key_server(main_partial_keys)
+sub_key_server = sub_key_server.Sub_key_server(sub_partial_keys)
+logger.info('Simulation: partial key distribution to key servers - done')
 
-face_feature_server = Ffserver(public_server_keys)
-client = Client()
+logger.info('Simulation: key distribution to face feature server - started')
+public_key = main_key_server.export_public_server_key()
+face_feature_server = face_feature_server.Face_feature_server()
+face_feature_server.import_public_server_key(public_key)
+logger.info('Simulation: key distribution to face feature server - done')
 
-reencryption_server.generate_and_distribute_local_keys()
-face_feature_server.load_and_combine()
-client.load_keys()
+logger.info('Simulation: key distribution to clients - started')
+public_key = face_feature_server.export_public_server_key()
+enrollment_client = enrollment_client.Enrollment_client()
+enrollment_client.import_public_server_key(public_key)
 
-#Enrollment
-#Enrollment Client side
-store_feature = numpy.load("store_feature.npy")
-store_feature = numpy.squeeze(store_feature)
-username = "Heinz51"
-username, encrpytion, public_local = client.process(username, store_feature)
+public_key = face_feature_server.export_public_server_key()
+authentication_client = authentication_client.Authentication_client()
+authentication_client.import_public_server_key(public_key)
+logger.info('Simulation: key distribution to clients - done')
 
-#Face Feature Server side
-face_feature_server.enroll(username, encrpytion, public_local)
+#input()
 
+# Name and Feature collection for later enrollment and authentication simulations
+username_1 = 'Karl-Heinz'
+username_2 = 'Agatha'
+#feature_1 = np.random.uniform(-1, 1, (functions.feature_size, ))
+feature_1 = np.zeros(functions.feature_size)
+feature_1[0]=1
+#feature_1 = feature_1/np.linalg.norm(feature_1)
+feature_1 = [feature_1]
+#feature_2 = np.random.uniform(-1, 1, (functions.feature_size, ))
+feature_2 = np.zeros(functions.feature_size)
+feature_2[3]=1
+#feature_2 = feature_2/np.linalg.norm(feature_2)
+feature_2 = [feature_2]
 
-#Initialisation
-authclient = AuthClient()
-reencryption_server.generate_and_distribute_local_keys()
-face_feature_server.load_and_combine()
-authclient.load_keys()
+# Enrollment
+logger.info('Simulation: enrollment simulation on enrollment client for ' + username_1 + ' with feature of ' + username_1 + ' - started')
+message = enrollment_client.enroll(username_1, feature_1)
+face_feature_server.process_message_1(message)
+logger.info('Simulation: enrollment simulation on enrollment client for ' + username_1 + ' with feature of ' + username_1 + ' - done')
 
-#Authentication
-#Authentication Client side
-test_feature = numpy.load("test_feature.npy")
-test_feature = numpy.squeeze(test_feature)
-username = "Heinz51" #also test with "Heinz52"
-username, encr_test_feature, public_test_local_key = authclient.process(username, test_feature)
+logger.info('Simulation: enrollment simulation on enrollment client for ' + username_2 + ' with feature of ' + username_2 + ' - started')
+message = enrollment_client.enroll(username_2, feature_2)
+face_feature_server.process_message_1(message)
+logger.info('Simulation: enrollment simulation on enrollment client for ' + username_2 + ' with feature of ' + username_2 + ' - done')
 
-#Face Feature Server side
-public_stored_local_key, encr_stored_feature = face_feature_server.find_encr_stored_feature(username)
+# Authentication
+logger.info('Simulation: authentication simulation on authentication client for ' + username_1 + ' with feature of ' + username_1 + ' - started')
+message = authentication_client.authenticate_1(username_1, feature_1)
+enc_answer, public_local_key = face_feature_server.process_message_1(message)
+public_local_key_for_sub = main_key_server.key_switch_1(enc_answer, public_local_key)
+sub_partial_key_switching_keys = sub_key_server.get_partial_key_switching_keys(public_local_key_for_sub)
+reenc_answer = main_key_server.key_switch_2(enc_answer, public_local_key, sub_partial_key_switching_keys)
+rekeyed_answer = face_feature_server.process_message_2(reenc_answer)
+plaintext_answer = functions.treshold(np.dot(feature_1[0], feature_1[0]))
+logger.info('Simulation: ' + functions.colors.WARNING + 'expected answer' + functions.colors.ENDC + ' after decryption on the client side ' + functions.colors.WARNING + str(plaintext_answer) + functions.colors.ENDC)
+answer = authentication_client.authenticate_2(rekeyed_answer)
+logger.info('Simulation: authentication simulation on authentication client for ' + username_1 + ' with feature of ' + username_1 + ' - done with ' + functions.colors.WARNING + 'LOGIN_ALLOWED=' + str(answer) + functions.colors.ENDC)
 
-#Reencryption Server side
-#Now ask Reencryption server to encrypt this a second time - would not be necessary if HNP would provide an ASsymmetric homomorphic scheme
-enc2_stored_feature = reencryption_server.encrypt(encr_stored_feature)
-#Same for the test feature
-enc2_test_feature = reencryption_server.encrypt(encr_test_feature)
+logger.info('Simulation: authentication simulation on authentication client for ' + username_1 + ' with feature of ' + username_2 + ' - started')
+message = authentication_client.authenticate_1(username_1, feature_2)
+enc_answer, public_local_key = face_feature_server.process_message_1(message)
+public_local_key_for_sub = main_key_server.key_switch_1(enc_answer, public_local_key)
+sub_partial_key_switching_keys = sub_key_server.get_partial_key_switching_keys(public_local_key_for_sub)
+reenc_answer = main_key_server.key_switch_2(enc_answer, public_local_key, sub_partial_key_switching_keys)
+rekeyed_answer = face_feature_server.process_message_2(reenc_answer)
+plaintext_answer = functions.treshold(np.dot(feature_2[0], feature_1[0]))
+logger.info('Simulation: ' + functions.colors.WARNING + 'expected answer' + functions.colors.ENDC + ' after decryption on the client side ' + functions.colors.WARNING + str(plaintext_answer) + functions.colors.ENDC)
+answer = authentication_client.authenticate_2(rekeyed_answer)
+logger.info('Simulation: authentication simulation on authentication client for ' + username_1 + ' with feature of ' + username_2 + ' - done with ' + functions.colors.WARNING + 'LOGIN_ALLOWED=' + str(answer) + functions.colors.ENDC)
 
-#Face Feature Server side
-encr_answer = face_feature_server.authenticate(public_test_local_key, enc2_test_feature, public_stored_local_key, enc2_stored_feature)
+logger.info('Simulation: authentication simulation on authentication client for ' + username_2 + ' with feature of ' + username_1 + ' - started')
+message = authentication_client.authenticate_1(username_2, feature_1)
+enc_answer, public_local_key = face_feature_server.process_message_1(message)
+public_local_key_for_sub = main_key_server.key_switch_1(enc_answer, public_local_key)
+sub_partial_key_switching_keys = sub_key_server.get_partial_key_switching_keys(public_local_key_for_sub)
+reenc_answer = main_key_server.key_switch_2(enc_answer, public_local_key, sub_partial_key_switching_keys)
+rekeyed_answer = face_feature_server.process_message_2(reenc_answer)
+plaintext_answer = functions.treshold(np.dot(feature_1[0], feature_2[0]))
+logger.info('Simulation: ' + functions.colors.WARNING + 'expected answer' + functions.colors.ENDC + ' after decryption on the client side ' + functions.colors.WARNING + str(plaintext_answer) + functions.colors.ENDC)
+answer = authentication_client.authenticate_2(rekeyed_answer)
+logger.info('Simulation: authentication simulation on authentication client for ' + username_2 + ' with feature of ' + username_1 + ' - done with ' + functions.colors.WARNING + 'LOGIN_ALLOWED=' + str(answer) + functions.colors.ENDC)
 
-#Reencryption Server side
-encr_loc_answer = reencryption_server.reencrypt(self, encr_answer, public_test_local_key)
-
-#Authentication Client side
-print(authclient.answer(enc_loc_answer))
+logger.info('Simulation: authentication simulation on authentication client for ' + username_2 + ' with feature of ' + username_2 + ' - started')
+message = authentication_client.authenticate_1(username_2, feature_2)
+enc_answer, public_local_key = face_feature_server.process_message_1(message)
+public_local_key_for_sub = main_key_server.key_switch_1(enc_answer, public_local_key)
+sub_partial_key_switching_keys = sub_key_server.get_partial_key_switching_keys(public_local_key_for_sub)
+reenc_answer = main_key_server.key_switch_2(enc_answer, public_local_key, sub_partial_key_switching_keys)
+rekeyed_answer = face_feature_server.process_message_2(reenc_answer)
+plaintext_answer = functions.treshold(np.dot(feature_2[0], feature_2[0]))
+logger.info('Simulation: ' + functions.colors.WARNING + 'expected answer' + functions.colors.ENDC + ' after decryption on the client side ' + functions.colors.WARNING + str(plaintext_answer) + functions.colors.ENDC)
+answer = authentication_client.authenticate_2(rekeyed_answer)
+logger.info('Simulation: authentication simulation on authentication client for ' + username_2 + ' with feature of ' + username_2 + ' - done with ' + functions.colors.WARNING + 'LOGIN_ALLOWED=' + str(answer) + functions.colors.ENDC)

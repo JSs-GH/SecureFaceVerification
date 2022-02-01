@@ -1,32 +1,42 @@
-#right now, only one stored feature and one test feature at a time are supported
-
 import hnumpy as hnp
 import numpy as np
-import rsa
 
-treshold = 0.5
 feature_size = 128
-rsa_array_length = rsa.bitlength*2
-default_RSA_tool = rsa.RSA_Tool()
-    
-def dissimilarity_measure(x,y):
-	return 1 - np.sum(np.multiply(x,y))
+
+# Instead of computing the dissimilarity measure 1- x^t y, one computes just x^t y and compares this against a treshold.
+treshold_value = 0.75
+
+# Identity function needed for the key switch later on
+def identity(x):
+	return x
 	
-def decision(d):
-	return d > treshold
-
-def all(enc_rsa_ciphertext1, enc_rsa_priv_1, enc_rsa_N_1, enc_rsa_ciphertext2, enc_rsa_priv_2, enc_rsa_N_2):
-	encr_test_feature = default_RSA_tool.narray_decrypt_and_decode(enc_rsa_ciphertext1, enc_rsa_priv_1, enc_rsa_N_1)
-	encr_stored_feature = default_RSA_tool.narray_decrypt_and_decode(enc_rsa_ciphertext2, enc_rsa_priv_2, enc_rsa_N_2)
-	d = dissimilarity_measure(encr_test_feature, encr_stored_feature)
-	return decision(d)
-
-hom_all = hnp.compile_fhe(
-    all,
-    {"enc_rsa_ciphertext1": hnp.encrypted_ndarray(bounds=(-1,2), shape=(feature_size,)),
-    "enc_rsa_priv_1": hnp.encrypted_ndarray(bounds=(-1,2), shape=(rsa_array_length,)),
-    "enc_rsa_N_1": hnp.encrypted_ndarray(bounds=(-1,2), shape=(rsa_array_length,)),
-    "enc_rsa_ciphertext2": hnp.encrypted_ndarray(bounds=(-1,2), shape=(feature_size,)),
-    "enc_rsa_priv_2": hnp.encrypted_ndarray(bounds=(-1,2), shape=(rsa_array_length,)),
-    "enc_rsa_N_2": hnp.encrypted_ndarray(bounds=(-1,2), shape=(rsa_array_length,))}
+# Defines the circuit w.r.t. the identity function, that is used in the homomorphic evaluation on the server.
+hom_identity = hnp.compile_fhe(
+    identity,
+    {"x": hnp.encrypted_ndarray(bounds=(-1.5,1.5), shape=(1,))}, 
+     config=hnp.config.CompilationConfig(parameter_optimizer="handselected", bits_of_security=128),
 )
+
+# Computes the euclidean product using the hadamard product as in the baseline.
+def euclidean(test_feature, stored_feature):
+	return np.sum(np.multiply(test_feature, stored_feature)) #alternatively: np.dot(test_feature, stored_feature)
+	
+# Outputs true, if a given value a is greater than the treshold and otherwise false.
+def treshold(a):
+	return a > treshold_value
+
+# Outputs true, if test_feature and stored_feature are sufficiently equal and otherwise false.
+def decision(test_feature, stored_feature):
+	return treshold(euclidean(test_feature, stored_feature))
+
+# Defines the circuit w.r.t. the decision function, that is used in the homomorphic evaluation on the server.
+hom_decision = hnp.compile_fhe(
+    decision,
+    {"test_feature": hnp.encrypted_ndarray(bounds=(-1.5,1.5), shape=(feature_size,)),
+     "stored_feature": hnp.encrypted_ndarray(bounds=(-1.5,1.5), shape=(feature_size,))},
+     config=hnp.config.CompilationConfig(parameter_optimizer="handselected", bits_of_security=128),
+)
+
+class colors:
+    WARNING = '\033[93m'
+    ENDC = '\033[0m'
